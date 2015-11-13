@@ -1,0 +1,149 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Arash Amoozegar"
+date: "November 13, 2015"
+---
+
+**Executive Summary**
+
+The goal of this project is prediction using machine learning algorithms. I build a prediction model using both training and test data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. Class A represents the correct executions while classes B, C, D, and E represent incorrect executions of the exercise. Therefore, the goal is to find a machine learning algorithm that takes the readings from accelerometers and predicts the class category with a good degree of accuracy. In the end, I test the performance of the model on 20 different test cases.
+
+**Versions**
+
+Several R packages will be used throughout this project. For the sake of reproducibility of the results, this section provides the versions of the R packges used at the time writing.
+
+```{r, echo = TRUE}
+#install.packages("caret")
+library(caret)
+#install.packages("rpart")
+library(rpart)
+#install.packages("rattle")
+library(rattle)
+#install.packages('e1071', dependencies = TRUE)
+#install.packages("randomForest")
+library(randomForest)
+packageVersion("caret")
+packageVersion("rpart")
+packageVersion("rattle")
+packageVersion("randomForest")
+```
+
+**Downloading, Importing, and Cleaning the Data**
+
+I use the provided links to download two data sets: `pml-training.csv` which will be used as the training data set for the model and `pml-testing.csv` which will be used for testing the model. Next, I import the data sets into R and encode the missing observations and divisions by zero (makred as #DIV/0!) as missing (i.e. NA). 
+
+```{r, echo = TRUE}
+setwd("D:/R/Practical Machine Learning/Project/")
+rm(list = ls())
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "./pml-testing.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "./pml-training.csv")
+Data_Train <- read.csv("./pml-training.csv", sep = ",", na.strings = c("NA", "#DIV/0!", ""))
+Data_Test <- read.csv("./pml-testing.csv", sep = ",", na.strings = c("NA", "#DIV/0!", ""))
+```
+
+Providing some stats about the training data set. 19,622 observations and 160 variables. Our variable of interest, `classe`, has 5 different categories (as mentioned in the "Executive Summary" section) from A to E. Number of observations in each of the categories is shown below. 
+
+```{r, echo = TRUE}
+dim(Data_Train)
+summary(Data_Train$classe)
+```
+
+A very preliminary analysis of the `Data_Train` data set shows that there are many columns with a very large percentage of missing values. My next step is to identify and drop these variables.
+
+```{r, echo = TRUE}
+Data_Train_NA <- sapply(Data_Train, function(x) sum(is.na(x)))
+```
+
+Analyzing the `Data_Train_NA` table, I noticed that from 160 variables, only 60 variables have 0 missing values and the rest of the variables have somewhere between 98% to 100% missing observations. I decided to keep only the 60 variables with no missing values and store them in `Data_Train_Clean` data set. I also drop the first column of the `Data_Train_NA` data set which provides an ID for each of the observations. 
+
+```{r, echo = TRUE}
+Data_Train_Clean <- Data_Train[, !names(Data_Train) %in% names(Data_Train_NA[Data_Train_NA > 0])]
+Data_Train_Clean$X <- NULL
+dim(Data_Train_Clean)
+```
+
+Using the following code, I verify that there are no missing values in the data set. 
+
+```{r, echo = TRUE}
+sum(is.na(Data_Train_Clean))
+```
+
+In addition, I tried to reduce the number of variables in the model by using the Near Zero Variance command but since only 1 variable had `nzv = TRUE`, I decided to ignore this step.
+
+**Partioning the Data**
+
+In order to test my model and estimate the out of sample prediction performance of the models, I split the `Data_Train_Clean` data set into 2 partitions: a training partition to train my model, and, a testing partition to test the performance of my model. I put 65% of the data set for training and 35% for testing as shown in the following code. Checking the dimension of both the training and testing shows that the data partioning is done right.
+
+```{r, echo = TRUE}
+Train_in <- createDataPartition(y = Data_Train_Clean$classe, p = 0.65, list = FALSE)
+Data_Train_Clean_Tr <- Data_Train_Clean[Train_in, ]
+Data_Train_Clean_Te <- Data_Train_Clean[-Train_in, ]
+dim(Data_Train_Clean_Tr)
+dim(Data_Train_Clean_Te)
+```
+
+**Data Types**
+
+In order to run the Machine Learning prediction algorithm on the `Data_Test` data set, type of predictors in this data set should match the the type of the predictors in the training data set. The following code handles this conversion by first assigning the same column names as `Data_Train_Clean_Tr` to the columns of `Data_Test` and adding one of the rows (in this case row 2) from `Data_Train_Clean_Tr` data set to make the data types between two data sets comparable. This added line is dropped in the last line of code.
+
+```{r, echo = TRUE}
+Data_Test <- Data_Test[colnames(Data_Train_Clean_Tr[, -59])]
+Data_Test <- rbind(Data_Train_Clean_Tr[2, -59], Data_Test)
+Data_Test <- Data_Test[-1, ]
+```
+
+**Prediction Model Building**
+
+In this section, I test two predition models namely, Decision Tree and Random Forests. Seed is set at a fixed number for both models for the sake of reproducibility of the results. 
+
+**Prediction Model I: Decision Tree**
+
+First model is decision tree using the `rpart` package. 
+
+```{r, echo = TRUE}
+set.seed(1363)
+Model_DT <- rpart(classe ~ ., data = Data_Train_Clean_Tr, method = "class")
+Model_DT_Predict <- predict(Model_DT, Data_Train_Clean_Te, type = "class")
+Model_DT_Predict_CM <- confusionMatrix(Model_DT_Predict, Data_Train_Clean_Te$classe)
+Model_DT_Predict_CM
+```
+
+The accuracy of the model is 87.33% which is not very promising considering the number of predictors and observations in the model. The low Kappa is also an indicator of this relatively low accuracy. 
+
+**Prediction Model II: Random Forests**
+
+Second model is Random Forests using the `randomForest` package.
+
+```{r, echo = TRUE}
+set.seed(1363)
+Model_RF <- randomForest(classe ~ ., data = Data_Train_Clean_Tr)
+Model_RF
+```
+
+The OOB estimate of error rate of 0.13% is very low and promises a very good accuracy for out of sample tests. To verify this accuracy, I turn in to the confusion matrix. 
+
+```{r, echo = TRUE}
+Model_RF_Predict <- predict(Model_RF, Data_Train_Clean_Te, type = "class")
+Model_RF_Predict_CM <- confusionMatrix(Model_RF_Predict, Data_Train_Clean_Te$classe)
+Model_RF_Predict_CM
+```
+
+As shown, accuracy of the model for out of sample prediction is 99.88% (the out of sample error would be 1 - 0.9988 = 0.12%) and the Kappa is 99.85%. Both of the indicators indicate that the Random Forests model in its current setting is quite accurate and useful in making out of sample predictions. This model shows a significant improvement over Decision Tree model and hence is chosen as the prediction model used for submission of results. 
+
+**Submission**
+
+The following code (taken from the Practical Machine Learning project submission page) uses the Random Forests model to predict the manner in which the participants did the exercise for the 20 new observations. This code produces 20 .txt files which are submitted for grading in Coursera (20 out of 20 cases were correctly predicted).
+
+```{r, echo = TRUE}
+Submission <- predict(Model_RF, Data_Test, type = "class")
+
+pml_write_files = function(x) {
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("problem_id_",i,".txt")
+                write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+        }
+}
+
+pml_write_files(Submission)
+```
